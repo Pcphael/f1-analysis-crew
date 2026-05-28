@@ -1,15 +1,18 @@
 """
-F1 Analysis Crew - Sistema de Agentes para Fórmula 1
-Criado por Grok (xAI) - Maio 2026
+F1 Analysis Crew - Versão Final Corrigida
 """
 
-import requests
-from bs4 import BeautifulSoup
+import os
+import fastf1
+import fastf1.plotting
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('Agg')  # Evita erro de interface gráfica
+matplotlib.use('Agg')
+
+os.makedirs('cache', exist_ok=True)
+fastf1.Cache.enable_cache('cache')
 
 
 class BaseAgent:
@@ -31,7 +34,6 @@ class ReporterAgent(BaseAgent):
             "Ferrari apresenta atualizações no SF-25",
             "Mercedes trabalha em nova suspensão traseira"
         ]
-        
         report = f"""# 🏎️ INFORMATIVO DIÁRIO F1
 **Data:** {datetime.now().strftime('%d/%m/%Y às %H:%M')}
 
@@ -40,16 +42,6 @@ class ReporterAgent(BaseAgent):
 """
         for i, title in enumerate(news, 1):
             report += f"**{i}.** {title}\n\n"
-        
-        report += """## Resumo executivo
-- **McLaren** continua forte no desenvolvimento do carro de 2026
-- **Red Bull** foca em resolver problemas de correlação
-- **Ferrari** apresentou atualizações aerodinâmicas importantes
-- **Mercedes** trabalha em nova suspensão traseira
-
----
-*Relatório gerado automaticamente pelo Reporter Agent*
-"""
         return report
 
 
@@ -57,68 +49,94 @@ class EngineerAgent(BaseAgent):
     def __init__(self):
         super().__init__("Engineer Agent")
 
-    def analyze_aerodynamics_and_speed(self):
-        # Dados simulados realistas
+    def analyze_aerodynamics_and_speed(self, year=2025, gp="Monaco", session="Q"):
+        self.log(f"Carregando {gp} {year} - {session}...")
+
+        try:
+            session_data = fastf1.get_session(year, gp, session)
+            session_data.load()
+
+            laps = session_data.laps.pick_quicklaps().reset_index(drop=True)
+            fastest = laps.loc[laps.groupby('Driver')['LapTime'].idxmin()]
+
+            drivers = ['VER', 'NOR', 'LEC', 'PIA', 'HAM']
+            telemetry_data = []
+
+            for driver in drivers:
+                try:
+                    lap = session_data.laps.pick_driver(driver).pick_fastest()
+                    tel = lap.get_car_data().add_distance()
+                    max_speed = tel['Speed'].max()
+                    telemetry_data.append({
+                        'driver': driver,
+                        'team': lap['Team'],
+                        'top_speed': max_speed
+                    })
+                except:
+                    continue
+
+            df = pd.DataFrame(telemetry_data)
+
+            import os
+            os.makedirs("reports", exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+            plt.figure(figsize=(10, 6))
+            plt.bar(df['driver'], df['top_speed'], color='#1E40AF')
+            plt.title(f'Top Speed Real - {gp} {year} ({session})', fontsize=14, fontweight='bold')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            speed_path = f"reports/real_speed_{timestamp}.png"
+            plt.savefig(speed_path, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            analysis = f"""# 🔧 ANÁLISE TÉCNICA REAL (FastF1)
+
+**Sessão:** {gp} {year} - {session}
+
+## Velocidade Máxima Real (km/h)
+"""
+            for _, row in df.iterrows():
+                analysis += f"- **{row['driver']}** ({row['team']}): {row['top_speed']:.1f} km/h\n"
+
+            analysis += f"\n**Gráfico:** {speed_path}\n"
+            return {'text': analysis, 'charts': {'speed': speed_path}}
+
+        except Exception as e:
+            self.log(f"Erro: {e} → Usando dados simulados")
+            return self._get_simulated_data()
+
+    def _get_simulated_data(self):
         data = {
-            'driver': ['Verstappen', 'Norris', 'Leclerc', 'Piastri', 'Hamilton', 'Russell'],
-            'team': ['Red Bull', 'McLaren', 'Ferrari', 'McLaren', 'Mercedes', 'Mercedes'],
-            'top_speed_kmh': [345, 342, 338, 341, 336, 337],
-            'drag_coefficient_est': [0.82, 0.79, 0.85, 0.80, 0.88, 0.87]
+            'driver': ['VER', 'NOR', 'LEC', 'PIA', 'HAM'],
+            'team': ['Red Bull', 'McLaren', 'Ferrari', 'McLaren', 'Mercedes'],
+            'top_speed': [345, 342, 338, 341, 336]
         }
         df = pd.DataFrame(data)
 
-        # Criar pasta de relatórios
         import os
         os.makedirs("reports", exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
-        # Gráfico 1 - Top Speed
         plt.figure(figsize=(10, 6))
-        colors = ['#1E3A8A', '#F97316', '#DC2626', '#F97316', '#6B7280', '#6B7280']
-        plt.bar(df['driver'], df['top_speed_kmh'], color=colors)
-        plt.title('Top Speed por Piloto (km/h)', fontsize=14, fontweight='bold')
-        plt.ylabel('Velocidade Máxima (km/h)')
+        plt.bar(df['driver'], df['top_speed'], color='#1E40AF')
+        plt.title('Top Speed (Simulado)', fontsize=14, fontweight='bold')
         plt.xticks(rotation=45)
         plt.tight_layout()
-        top_speed_path = f"reports/top_speed_{timestamp}.png"
-        plt.savefig(top_speed_path, dpi=150, bbox_inches='tight')
+        path = f"reports/sim_speed_{timestamp}.png"
+        plt.savefig(path, dpi=150, bbox_inches='tight')
         plt.close()
 
-        # Gráfico 2 - Drag
-        plt.figure(figsize=(10, 6))
-        plt.bar(df['driver'], df['drag_coefficient_est'], color='#10B981')
-        plt.title('Coeficiente de Drag Estimado (menor = melhor)', fontsize=14, fontweight='bold')
-        plt.ylabel('Drag Coefficient')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        drag_path = f"reports/drag_{timestamp}.png"
-        plt.savefig(drag_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        analysis = f"""# 🔧 ANÁLISE TÉCNICA (Fallback)
 
-        analysis = f"""# 🔧 ANÁLISE TÉCNICA - ENGENHEIRO AGENT
+## Velocidade Máxima (km/h)
+- VER (Red Bull): 345 km/h
+- NOR (McLaren): 342 km/h
+- PIA (McLaren): 341 km/h
 
-## Top 5 - Velocidade Máxima (Speed Trap)
-- **Verstappen** (Red Bull): 345 km/h
-- **Perez** (Red Bull): 344 km/h
-- **Norris** (McLaren): 342 km/h
-- **Piastri** (McLaren): 341 km/h
-- **Sainz** (Ferrari): 339 km/h
-
-## Análise de Drag Force
-- **Menor drag (melhor eficiência em reta)**: McLaren ≈ 0.79-0.80
-- **Maior downforce**: Ferrari e Red Bull ≈ 0.84-0.85
-
-**Gráficos gerados automaticamente:**
-- {top_speed_path}
-- {drag_path}
-
----
-*Análise gerada pelo Engineer Agent*
+**Gráfico:** {path}
 """
-        return {
-            'text': analysis,
-            'charts': {'top_speed': top_speed_path, 'drag': drag_path}
-        }
+        return {'text': analysis, 'charts': {'speed': path}}
 
 
 class RegulatorAgent(BaseAgent):
@@ -126,66 +144,43 @@ class RegulatorAgent(BaseAgent):
         super().__init__("Regulator Agent")
 
     def get_weekend_schedule(self):
-        return """# 📋 PASSO A PASSO - FINAL DE SEMANA DE GRANDE PRÊMIO (FIA 2026)
+        return """# 📋 PASSO A PASSO - FINAL DE SEMANA DE GRANDE PRÊMIO
 
-## Quinta-feira
-- **14:00 - 17:00**: Treinos Livres 1 (FP1)
+## Quinta-feira → FP1
+## Sexta-feira → FP2
+## Sábado → FP3 + Classificação
+## Domingo → Largada 14h
 
-## Sexta-feira
-- **11:00 - 12:30**: Treinos Livres 2 (FP2)
-- **14:00 - 15:00**: Conferência de imprensa
-
-## Sábado
-- **10:30 - 11:30**: Treinos Livres 3 (FP3)
-- **13:00 - 14:00**: Classificação (Q1, Q2, Q3)
-
-## Domingo
-- **13:00**: Volta de formação
-- **14:00**: Largada do Grande Prêmio
-
-## Regras importantes
-1. **Parque Fechado (Parc Fermé)**
-2. **Modos de Power Unit**
-3. **DRS**
-4. **Alocação de pneus** (13 jogos)
-5. **Safety Car / VSC**
-
----
-*Análise regulatória pelo Regulator Agent*
+**Regras importantes:**
+- Parque Fechado
+- Modos de Power Unit
+- DRS
+- Alocação de pneus
 """
 
 
 class CoordinatorAgent(BaseAgent):
     def __init__(self):
-        super().__init__("Coordinator Agent")
+        super().__init__("Coordinator Agent")   # ← CORRIGIDO
 
-    def generate_final_report(self, reporter_report, engineer_report, regulator_report):
-        return f"""# 🏁 RELATÓRIO COMPLETO F1 ANALYSIS CREW
-**Gerado em:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
-
----
-
-{reporter_report}
+    def generate_final_report(self, reporter, engineer, regulator):
+        return f"""# 🏁 RELATÓRIO COMPLETO F1 ANALYSIS CREW (FastF1)
+**Gerado em:** {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
 ---
 
-{engineer_report}
+{reporter}
 
 ---
 
-{regulator_report}
+{engineer['text']}
 
 ---
 
-## Resumo Executivo da Equipe
-
-- **Reporter Agent**: Cobertura completa das notícias
-- **Engineer Agent**: Análise técnica + gráficos
-- **Regulator Agent**: Fluxo do final de semana + regulamentos
-- **Coordinator**: Integração final
+{regulator}
 
 ---
-*Sistema F1 Analysis Crew v2.0 - Powered by Grok (xAI)*
+*Powered by FastF1 + Grok (xAI)*
 """
 
 
