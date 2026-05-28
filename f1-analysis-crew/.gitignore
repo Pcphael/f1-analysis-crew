@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Reports (arquivos gerados)
+reports/
+*.png
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
